@@ -1,24 +1,41 @@
 const nodemailer = require('nodemailer');
 const User = require('../models/User'); 
 const { OAuth2Client } = require('google-auth-library');
-const admin = require("firebase-admin"); // <--- NEW IMPORT
+const admin = require("firebase-admin"); 
 require('dotenv').config();
 
-// --- CONFIGURATION ---
-// 1. Initialize Firebase Admin SDK
-// Make sure serviceAccountKey.json is in your backend folder!
-const serviceAccount = require("../serviceAccountKey.json");
+// --- 1. FIREBASE INITIALIZATION (VERCEL COMPATIBLE) ---
+// Vercel cannot read "files", so we read the JSON string from an Env Variable
+let serviceAccount;
+try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+        // Parse the string back into a JSON object
+        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } else {
+        console.error("❌ ERROR: FIREBASE_SERVICE_ACCOUNT variable is missing in Vercel!");
+    }
+} catch (error) {
+    console.error("❌ Firebase JSON Parse Error:", error.message);
+}
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+// Initialize only if we have the key and it's not already running
+if (!admin.apps.length && serviceAccount) {
+    try {
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount)
+        });
+        console.log("✅ Firebase Admin Initialized!");
+    } catch (e) {
+        console.error("❌ Firebase Init Failed:", e);
+    }
+}
 
 // 2. Google Client Config
 const GOOGLE_CLIENT_ID = "988012579412-sbnkvrl5makaebuvtv7jdho7su67edm3.apps.googleusercontent.com";
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 
-// --- 1. Send OTP Logic ---
+// --- 3. Send OTP Logic (BACK TO GMAIL SMTP) ---
 const sendOtp = async (req, res) => {
     const { email, otp } = req.body;
 
@@ -26,40 +43,41 @@ const sendOtp = async (req, res) => {
         return res.status(400).json({ error: "Email and OTP are required" });
     }
 
+    // Gmail SMTP works perfectly on Vercel (Ports are open)
     let transporter = nodemailer.createTransport({
-        service: 'gmail',
+        service: 'gmail', 
         auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
+            user: process.env.EMAIL_USER, // Your Gmail
+            pass: process.env.EMAIL_PASS  // Your 16-digit App Password
         }
     });
 
     let mailOptions = {
         from: `"Flavor Fetch" <${process.env.EMAIL_USER}>`,
         to: email,
-        subject: 'Your Login Verification Code',
+        subject: 'Flavor Fetch Login Verification',
         html: `
-            <div style="font-family: Arial, sans-serif; padding: 20px;">
-                <h2>Flavor Fetch Verification</h2>
-                <p>Your One-Time Password (OTP) is:</p>
-                <h1 style="color: #FF7A30; letter-spacing: 5px;">${otp}</h1>
-                <p>This code is valid for 10 minutes.</p>
+            <div style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">
+                <h2 style="color: #FF7A30;">Flavor Fetch</h2>
+                <p>Your verification code is:</p>
+                <h1 style="font-size: 32px; letter-spacing: 5px; color: #333;">${otp}</h1>
+                <p>This code expires in 10 minutes.</p>
             </div>
         `
     };
 
     try {
         await transporter.sendMail(mailOptions);
-        console.log(`OTP sent to ${email}`);
+        console.log(`✅ OTP sent to ${email} via Gmail`);
         res.status(200).json({ message: "OTP sent successfully" });
     } catch (error) {
-        console.error("Email error:", error);
+        console.error("❌ Email error:", error);
         res.status(500).json({ error: "Failed to send email" });
     }
 };
 
 
-// --- 2. Google Login Logic ---
+// --- 4. Google Login Logic ---
 const googleLogin = async (req, res) => {
     const { idToken } = req.body;
 
@@ -102,12 +120,11 @@ const googleLogin = async (req, res) => {
 };
 
 
-// --- 3. OTP Login (UPDATED: Returns Custom Token) ---
+// --- 5. OTP Login ---
 const otpLogin = async (req, res) => {
     const { email } = req.body;
 
     try {
-        // A. Ensure User exists in MongoDB
         let user = await User.findOne({ email });
         
         if (!user) {
@@ -121,16 +138,17 @@ const otpLogin = async (req, res) => {
             await user.save();
         }
 
-        // B. Generate Firebase Custom Token
-        // This token allows the Android app to login WITHOUT a password
         let firebaseUid = email; 
 
+        // Ensure Firebase is initialized before using it
+        if (!admin.apps.length) {
+             throw new Error("Firebase Admin not initialized. Check server logs.");
+        }
+
         try {
-            // Check if user exists in Firebase
             const firebaseUser = await admin.auth().getUserByEmail(email);
             firebaseUid = firebaseUser.uid;
         } catch (e) {
-            // If not, create them in Firebase
             const newFirebaseUser = await admin.auth().createUser({
                 email: email,
                 emailVerified: true
@@ -138,10 +156,8 @@ const otpLogin = async (req, res) => {
             firebaseUid = newFirebaseUser.uid;
         }
 
-        // Generate the magic token
         const customToken = await admin.auth().createCustomToken(firebaseUid);
 
-        // Send token back to Android
         res.status(200).json({ 
             message: "Login Success", 
             token: customToken, 
