@@ -1,26 +1,22 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const authRoutes = require('./routes/authRoutes');
-const connectDB = require('./config/db');
-const orderRoutes = require('./routes/orderRoutes');
-const userRoutes = require('./routes/userRoutes');
-require('dotenv').config();
+const express = require("express");
+const cors = require("cors");
 
-// <--- 2. Call the connection function
-connectDB();
+const authRoutes = require("./routes/authRoutes");
+const orderRoutes = require("./routes/orderRoutes");
+const userRoutes = require("./routes/userRoutes");
+
+require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json()); // ✅ replace body-parser
 
-// USE THE ROUTES
-// This prefixes all routes in authRoutes with "/api/auth"
-app.use('/api/auth', authRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/user', userRoutes);
+// Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/user", userRoutes);
 
+// ❌ DO NOT use app.listen() on Vercel
 module.exports = app;

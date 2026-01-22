@@ -1,24 +1,27 @@
 const nodemailer = require("nodemailer");
 const User = require("../models/User");
-const connectDB = require("../config/db"); // ✅ IMPORTANT
+const connectDB = require("../config/db");
 const { OAuth2Client } = require("google-auth-library");
 const admin = require("firebase-admin");
 require("dotenv").config();
 
 /* ─────────────────────────────────────────────
-   1. FIREBASE INITIALIZATION (VERCEL SAFE)
+   1. FIREBASE INITIALIZATION (VERCEL SAFE - FIXED)
 ───────────────────────────────────────────── */
 
 let serviceAccount;
 
 try {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  } else {
-    console.error("❌ FIREBASE_SERVICE_ACCOUNT missing");
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
   }
+
+  // 🔥 THIS LINE FIXES INVALID JWT SIGNATURE
+  serviceAccount = JSON.parse(
+    process.env.FIREBASE_SERVICE_ACCOUNT.replace(/\\n/g, "\n")
+  );
 } catch (error) {
-  console.error("❌ Firebase JSON Parse Error:", error.message);
+  console.error("❌ Firebase Service Account Error:", error);
 }
 
 if (!admin.apps.length && serviceAccount) {
@@ -91,7 +94,7 @@ const googleLogin = async (req, res) => {
   const { idToken } = req.body;
 
   try {
-    await connectDB(); // ✅ FIX
+    await connectDB();
 
     const ticket = await googleClient.verifyIdToken({
       idToken,
@@ -122,14 +125,14 @@ const googleLogin = async (req, res) => {
 };
 
 /* ─────────────────────────────────────────────
-   5. OTP LOGIN (FIXED)
+   5. OTP LOGIN (FINAL FIXED)
 ───────────────────────────────────────────── */
 
 const otpLogin = async (req, res) => {
   const { email } = req.body;
 
   try {
-    await connectDB(); // 🔥 THIS FIXES YOUR ERROR
+    await connectDB();
 
     let user = await User.findOne({ email });
 
